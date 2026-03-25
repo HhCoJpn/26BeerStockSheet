@@ -509,7 +509,7 @@ function uid(){return Math.random().toString(36).slice(2,9);}
 // GAS
 // ══════════════════════════════════════
 async function gasGet(p={}){const qs=new URLSearchParams({...p,_:Date.now()}).toString();const r=await fetch(`${GAS_URL}?${qs}`);return r.json();}
-async function gasPost(b){const r=await fetch(GAS_URL,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)});return r.json();}
+async function gasPost(b){try{await fetch(GAS_URL,{method:'POST',mode:'no-cors',headers:{'Content-Type':'text/plain'},body:JSON.stringify(b)});return {status:'ok'};}catch(e){console.error(e);return {status:'error'};}}
 
 async function syncFromSheets(store){
   if(!GAS_URL) return false;
