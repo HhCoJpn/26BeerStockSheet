@@ -915,10 +915,16 @@ function ftf(ts){return new Date(ts).toLocaleString('ja-JP',{month:'numeric',day
 // ══════════════════════════════════════
 // INIT
 // ══════════════════════════════════════
+const HARDCODED_URL = 'https://script.google.com/macros/s/AKfycbxTtl4AX074czzNawleQoBfsj8NI0zbY6JrLTH4H6BA-VsRPDdHzBcvJSmPeqDHXtjQ/exec';
+
 function init(){
   loadLocal();
   document.getElementById('gasCodeSetup').textContent=GAS_CODE;
-  if(!GAS_URL){ showPanel('setup'); document.getElementById('loginScreen').classList.add('hidden'); return; }
+  // Always use hardcoded URL — works on any device without setup
+  if(!GAS_URL){
+    GAS_URL = HARDCODED_URL;
+    ls('hc5_url', GAS_URL);
+  }
   showLoginScreen();
 }
 init();
