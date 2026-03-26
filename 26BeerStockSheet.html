@@ -517,8 +517,15 @@ async function syncFromSheets(store){
   setDot('busy','Syncing…');
   try{
     const d=await gasGet({action:'getAll',store:s});
-    if(d.items&&d.items.length) items=d.items.map(i=>({...i,qty:Number(i.qty),low:Number(i.low)}));
-    else if(!items.length){ items=[...DEF_ITEMS]; cats=[...DEF_CATS]; await gasPost({action:'saveItems',items,store:s}); await gasPost({action:'saveCats',cats,store:s}); }
+    // Only use Sheets data if it has items — never merge with DEF_ITEMS
+    if(d.items&&d.items.length){
+      items=d.items.map(i=>({...i,qty:Number(i.qty),low:Number(i.low)}));
+    } else if(!lsj('hc5_items',[]).length){
+      // First time only: push defaults to Sheets
+      items=[...DEF_ITEMS.map(i=>({...i}))];
+      cats=[...DEF_CATS.map(c=>({...c}))];
+      pushItemsBg(s); pushCatsBg(s);
+    }
     if(d.cats&&d.cats.length) cats=d.cats;
     if(d.logs) logs=d.logs;
     if(d.stores) allStores=d.stores;
@@ -535,20 +542,31 @@ async function loadOtherStore(s){
     ownerViewStore=s; saveLocal(); setDot('ok','Synced'); return true;
   }catch{ setDot('err','Error'); return false; }
 }
+// Fire-and-forget background sync — never blocks UI
+function pushBg(body){
+  if(!GAS_URL) return;
+  fetch(GAS_URL,{method:'POST',mode:'no-cors',headers:{'Content-Type':'text/plain'},body:JSON.stringify(body)})
+    .then(()=>setDot('ok','Synced')).catch(()=>setDot('err','Sync error'));
+}
+function pushItemsBg(store){ pushBg({action:'saveItems',items,store:store||activeStore()}); }
+function pushCatsBg(store){  pushBg({action:'saveCats', cats, store:store||activeStore()}); }
+
 async function pushSell(item,qty){
   item.qty=Math.max(0,item.qty-qty); saveLocal();
   const rec={id:uid(),ts:Date.now(),type:'sell',itemId:item.id,name:item.name,delta:-qty,store:activeStore()};
   logs.unshift({...rec,qty}); saveLocal();
-  if(GAS_URL){ setDot('busy','Syncing…'); try{await gasPost({action:'sell',...rec});setDot('ok','Synced');}catch{setDot('err','Error');} }
+  setDot('busy','Syncing…');
+  pushBg({action:'sell',...rec});
 }
 async function pushRestock(item,qty,exp){
   item.qty+=qty; if(exp) item.exp=exp; saveLocal();
   const rec={id:uid(),ts:Date.now(),type:'restock',itemId:item.id,name:item.name,delta:qty,exp:exp||'',store:activeStore()};
   logs.unshift({...rec,qty}); saveLocal();
-  if(GAS_URL){ setDot('busy','Syncing…'); try{await gasPost({action:'restock',...rec});setDot('ok','Synced');}catch{setDot('err','Error');} }
+  setDot('busy','Syncing…');
+  pushBg({action:'restock',...rec});
 }
-async function pushItems(){ saveLocal(); if(GAS_URL){ try{await gasPost({action:'saveItems',items,store:activeStore()});}catch{} } }
-async function pushCats(){  saveLocal(); if(GAS_URL){ try{await gasPost({action:'saveCats',cats,store:activeStore()});}catch{} } }
+async function pushItems(){ saveLocal(); pushItemsBg(); }
+async function pushCats(){  saveLocal(); pushCatsBg(); }
 function activeStore(){ return ownerViewStore||curSession?.store||'Matsudo'; }
 
 // ══════════════════════════════════════
@@ -630,18 +648,24 @@ async function loginAs(type, store){
   document.getElementById('storeLbl').textContent=
     type==='owner' ? 'OWNER' : store.toUpperCase();
 
+  // Show UI immediately with cached data
+  renderTabs(); showTab('stock');
+
+  // Sync in background without blocking
   const syncStore = type==='owner' ? (allStores[0]||stores[0]?.name||'Matsudo') : store;
   if(type==='owner') ownerViewStore=syncStore;
-
-  await syncFromSheets(syncStore);
-  renderTabs(); showTab('stock');
+  syncFromSheets(syncStore).then(ok=>{
+    if(ok){ renderStock(); if(curTab==='sell') renderSell(); }
+  });
 
   if(type==='staff'){
     setInterval(async()=>{
       if(!GAS_URL) return;
-      await syncFromSheets(store);
-      if(curTab==='stock') renderStock();
-      if(curTab==='sell')  renderSell();
+      const ok=await syncFromSheets(store);
+      if(ok){
+        if(curTab==='stock') renderStock();
+        if(curTab==='sell')  renderSell();
+      }
     },60000);
   }
 }
