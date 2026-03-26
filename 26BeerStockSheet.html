@@ -817,8 +817,27 @@ function renderHistory(){
   document.getElementById('histList').innerHTML=list.slice(0,60).map(l=>{
     const cls={sell:'sell',restock:'add'}[l.type]||'add';
     const lbl={sell:'SOLD',restock:'RESTOCKED'}[l.type]||l.type.toUpperCase();
-    return `<div class="hi"><div><div class="hi-n">${l.name}</div><div class="hi-s">${l.type==='sell'?`−${l.qty}`:`+${l.qty}`}</div></div><span class="hib ${cls}">${lbl}</span><span class="hit">${ftf(l.ts)}</span></div>`;
+    const canUndo = curSession?.type==='owner' && l.type==='restock';
+    const undoBtn = canUndo ? `<span class="li-u" onclick="undoRestock('${l.id}')">undo</span>` : '';
+    return `<div class="hi"><div><div class="hi-n">${l.name}</div><div class="hi-s">${l.type==='sell'?`−${l.qty}`:`+${l.qty}`}</div></div><div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;"><span class="hib ${cls}">${lbl}</span>${undoBtn}</div><span class="hit">${ftf(l.ts)}</span></div>`;
   }).join('');
+}
+
+async function undoRestock(lid){
+  const rec=logs.find(l=>l.id===lid);
+  if(!rec||rec.type!=='restock') return;
+  const item=getItem(rec.itemId);
+  if(!item){ toast('Item not found','err'); return; }
+  if(!confirm(`Undo restock: ${rec.name} −${rec.qty}?`)) return;
+  item.qty=Math.max(0, item.qty - rec.qty);
+  logs=logs.filter(l=>l.id!==lid);
+  saveLocal();
+  await pushItems();
+  // log the correction
+  const corr={id:uid(),ts:Date.now(),type:'restock',itemId:rec.itemId,name:rec.name,delta:-rec.qty,store:activeStore()};
+  await gasPost({action:'sell',...corr}); // use sell action to subtract
+  toast(`Undone: ${rec.name} −${rec.qty}`,'ok');
+  renderHistory(); renderStock(); renderRestock();
 }
 
 // ══════════════════════════════════════
